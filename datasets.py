@@ -11,6 +11,61 @@ import parseTrackletXML as xmlParser
 import kitti_transform
 import points3d
 import lidar
+import PIL
+from torchvision import transforms
+import torch
+
+from pathlib import Path
+
+import matplotlib.pyplot as plt
+
+
+from multiprocessing import Pool
+
+def make_dataset(arg):
+    return KittiDataset(arg['base'], arg['date'], arg['drive'])
+
+
+def get_kitti_datasets(base_path, range_tuple):
+    """range_tuple is None or a tuple (begin,end) that turns into slice begin:end
+
+    There are 37 datasets maximum in kitti.
+    """
+
+    base_path = Path(base_path)
+
+    arg_list = []
+
+    for date_path in base_path.iterdir():
+
+        if date_path.is_dir():
+            for drive_path in date_path.iterdir():
+
+                # only get datasets with tracklets
+                if not (drive_path / 'tracklet_labels.xml').exists():
+                    continue
+
+                arg = {'base': base_path,
+                       'date': date_path.name,
+                       'drive': drive_path.name.split('_')[-2]}
+                arg_list.append(arg)
+
+    if isinstance(range_tuple, int):
+        arg_list = [arg_list[range_tuple]]
+    elif isinstance(range_tuple, tuple):
+        arg_list = arg_list[range_tuple[0]:range_tuple[1]]
+
+
+    # with Pool(5) as pool:
+    #     dataset_list = pool.map(make_dataset, arg_list)
+
+    dataset_list = []
+
+    for arg in arg_list:
+        dataset = KittiDataset(arg['base'], arg['date'], arg['drive'])
+        dataset_list.append(dataset)
+
+    return dataset_list
 
 
 def get_image(kitti_data, tracklet, frame, next_frame):
@@ -23,10 +78,14 @@ def crop_image(img, bbox_pts):
     min_pts = bbox_pts.min(axis=0)
     max_pts = bbox_pts.max(axis=0)
 
+    x_pad = int((max_pts[0] - min_pts[0]) / 2)
+    y_pad = int((max_pts[1] - min_pts[1]) / 2)
+
     # x are columns for numpy array
     # y are rows
 
-    img = img[int(min_pts[1]):int(max_pts[1]), int(min_pts[0]):int(max_pts[0])]
+    img = img[int(min_pts[1]) - y_pad : int(max_pts[1]) + y_pad,
+          int(min_pts[0]) - y_pad:int(max_pts[0]) + y_pad]
 
     return img
 
@@ -94,7 +153,55 @@ class KittiSample:
 
         return pts_3d, pts_2d
 
+    def _get_object(self, frame, res = 224):
+
+        img = self.kitti_data.get_cam2(self.frame)
+
+        pts_3d, pts_2d = self.project_bbox3d()
+
+        bbox = self.get_crop_bbox(pts_2d)
+
+        img = img.crop(bbox)
+        img = img.resize((res, res), PIL.Image.BICUBIC)
+
+        transform = transforms.Compose([transforms.ToTensor(),
+                                        transforms.Normalize(mean=[0.485, 0.456, 0.406],
+                                                             std=[0.229, 0.224, 0.225])
+                                        ])
+        rgb = transform(img)
+
+        lidar_frame = self.lidar_frame_list[self.frame]
+        depth = lidar_frame.get_crop(bbox, res)
+
+        shape = rgb.shape
+        rgbd = torch.zeros((4, shape[1], shape[2]), dtype=torch.float32)
+
+        rgbd[0:3,:,:] = rgb
+        rgbd[3,:,:] = torch.from_numpy(depth)
+
+        return rgbd
+
+    def get_crop_bbox(self, bbox_pts):
+        """Takes bbox points in 2d (x,y,1) and gets crop.
+
+        Note that scaling factor of 2 is used to bring in context
+
+        returnx bbox = (x_min, x_max, y_min, y_max)
+        """
+
+        # TODO: return square crop rather than rectangular.
+
+        min_pts = bbox_pts.min(axis=0).astype(int)
+        max_pts = bbox_pts.max(axis=0).astype(int)
+
+        x_pad = int((max_pts[0] - min_pts[0]) / 2)
+        y_pad = int((max_pts[1] - min_pts[1]) / 2)
+
+        return (int(min_pts[0] - x_pad), int(min_pts[1] - y_pad), int(max_pts[0] + x_pad), int(max_pts[1] + y_pad))
+
     def get_current_object(self):
+
+        return self._get_object(self.frame)
 
         img = self.kitti_data.get_cam2(self.frame)
 
@@ -119,6 +226,8 @@ class KittiSample:
 
     def get_next_object(self):
 
+        return self._get_object(self.next_frame)
+
         img = self.kitti_data.get_cam2(self.next_frame)
 
         pts_3d, pts_2d = self.project_bbox3d()
@@ -133,7 +242,7 @@ class KittiSample:
 
         # TODO: might be better to use cos and sin of angle
         # to avoid sudden jump from 2pi to 0.
-        return (translation2 - translation1, rotation2 - rotation1)
+        return (torch.from_numpy(translation2 - translation1).float(), torch.from_numpy(rotation2 - rotation1).float())
 
 
 
@@ -203,10 +312,21 @@ class KittiDataset(Dataset):
 
         return len(self.samples)
 
-    def __getitem__(self, item):
-        return self.samples[item]
+    def __getitem__(self, item) -> typing.Dict[str, torch.tensor]:
 
+        sample =  self.samples[item]
 
+        current_obj = sample.get_current_object()
+
+        next_obj = sample.get_next_object()
+
+        delta = sample.get_delta()
+
+        delta = torch.cat(delta)
+
+        return {'current': current_obj,
+                'next': next_obj,
+                'delta': delta}
 
 
 def load_tracklets_for_frames(n_frames, xml_path):
