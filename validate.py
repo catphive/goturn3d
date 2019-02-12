@@ -6,6 +6,7 @@ import datasets
 import datasets
 import models
 import time
+import cli
 
 class Validator:
 
@@ -52,6 +53,8 @@ class Validator:
 
                 loss = criterion(output * 10, delta)
 
+                print(f'compare output: {(output*10)[0:1,:]}, delta: {(delta)[0:1,:]}')
+
                 total_loss += loss.item()
 
 
@@ -60,11 +63,13 @@ class Validator:
 
 
 def main():
-    model = models.LidarGoturnModel()
-    model.load_state_dict(torch.load('saved_models/final_model.pth'))
-    model.eval()
+    args = cli.get_args()
 
-    base = r'C:\Users\catph\data\kitti_raw\sync\kitti_raw_data\data'
+    base = args.data_directory
+
+    model = models.LidarGoturnModel()
+
+    model.load_state_dict(torch.load('saved_models/final_model.pth'))
 
     dataset_list = datasets.get_kitti_datasets(base, 4)
 

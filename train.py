@@ -22,7 +22,8 @@ class Trainer:
         self.device = device
 
 
-    def train(self, num_epochs = 10, batch_size = 50, learning_rate=1e-5, momentum=0.9, weight_decay=0.0005):
+    def train(self, num_epochs = 96, batch_size = 50, learning_rate=1e-5, momentum=0.9, weight_decay=0.0005,
+              lr_decay_step=20, gamma=0.1):
         # TODO: support multiple datasets in list.
         dataset = torch.utils.data.ConcatDataset(self.dataset_list)
 
@@ -37,17 +38,23 @@ class Trainer:
                               momentum=momentum,
                               weight_decay=weight_decay)
 
+        scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=lr_decay_step, gamma=gamma)
+
         dataset_size = len(dataset)
 
         self.model.train()
 
-        for epoch in range(10):
+        print(f'starting to train...')
 
-            epoch_loss = 0
+        for epoch in range(num_epochs):
 
             t1 = time.perf_counter()
 
+            epoch_loss = 0
+            scheduler.step()
+
             for data in train_loader:
+
 
                 current = data['current'].to(self.device)
                 next = data['next'].to(self.device)
@@ -66,7 +73,7 @@ class Trainer:
                 epoch_loss += loss.item()
 
             t2 = time.perf_counter()
-            print(f'epoch {epoch}, loss = {epoch_loss}, avg loss = {epoch_loss / dataset_size}, duration = {t2 - t1}')
+            print(f'epoch {epoch}, loss = {epoch_loss:.1f}, avg loss = {epoch_loss / dataset_size:.1f}, duration = {t2 - t1:.1f}')
 
 
         torch.save(self.model.state_dict(), 'saved_models/final_model.pth')
@@ -80,7 +87,7 @@ def main():
 
     # base = r'C:\Users\catph\data\kitti_raw\sync\kitti_raw_data\data'
 
-    dataset_list = datasets.get_kitti_datasets(base, (0, 4))
+    dataset_list = datasets.get_kitti_datasets(base, (0, 30))
 
     goturn_model = models.LidarGoturnModel()
 

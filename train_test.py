@@ -14,7 +14,7 @@ class TrainTest(unittest.TestCase):
 
         base = r'C:\Users\catph\data\kitti_raw\sync\kitti_raw_data\data'
 
-        dataset_list = datasets.get_kitti_datasets(base, (0,4))
+        dataset_list = datasets.get_kitti_datasets(base, 1)
 
         # kitti_dataset = datasets.KittiDataset(basedir, date, drive)
 
