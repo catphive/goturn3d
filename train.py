@@ -21,7 +21,6 @@ class Trainer:
         self.model = model
         self.device = device
 
-
     def train(self, num_epochs = 96, batch_size = 50, learning_rate=1e-5, momentum=0.9, weight_decay=0.0005,
               lr_decay_step=20, gamma=0.1):
         # TODO: support multiple datasets in list.
@@ -37,6 +36,10 @@ class Trainer:
                               lr=learning_rate,
                               momentum=momentum,
                               weight_decay=weight_decay)
+
+        lr_decay_step = int(num_epochs / 5)
+        if lr_decay_step < 10:
+            lr_decay_step = 10
 
         scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=lr_decay_step, gamma=gamma)
 
@@ -87,15 +90,20 @@ def main():
 
     # base = r'C:\Users\catph\data\kitti_raw\sync\kitti_raw_data\data'
 
-    dataset_list = datasets.get_kitti_datasets(base, (0, 30))
+    sets = args.data_sets
 
-    goturn_model = models.LidarGoturnModel()
+    print(f'sets = {sets}')
+
+    dataset_list = datasets.get_kitti_datasets(base, sets)
+
+    # goturn_model = models.LidarGoturnModel()
+    goturn_model = models.TestModel()
 
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
     trainer = Trainer(dataset_list, goturn_model, device)
 
-    trainer.train()
+    trainer.train(num_epochs=args.num_epochs)
 
 
 if __name__ == '__main__':

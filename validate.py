@@ -67,11 +67,12 @@ def main():
 
     base = args.data_directory
 
-    model = models.LidarGoturnModel()
+    # model = models.LidarGoturnModel()
+    model = models.TestModel()
 
     model.load_state_dict(torch.load('saved_models/final_model.pth'))
 
-    dataset_list = datasets.get_kitti_datasets(base, 4)
+    dataset_list = datasets.get_kitti_datasets(base, args.data_sets)
 
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 

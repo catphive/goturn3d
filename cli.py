@@ -1,5 +1,17 @@
 import argparse
 
+
+def parse_sets(data_str):
+
+    idx_list = data_str.split(':')
+
+    if len(idx_list) == 1:
+        return int(idx_list[0])
+    elif len(idx_list) == 2:
+        return (int(idx_list[0]), int(idx_list[1]))
+    else:
+        raise RuntimeError(f'Could not parse -sets arg "{data_str}"')
+
 def get_args():
 
     # based on pygoturn args
@@ -12,6 +24,13 @@ def get_args():
                         required=True,
                         help='path to data directory')
 
+
+    parser.add_argument('-sets', '--data-sets', type=parse_sets,
+                        required=True,
+                        help='either idx or begin:end')
+
+    parser.add_argument('-epochs', '--num-epochs', type=int, default=10,
+                        help='number of epochs to run')
 
     # parser.add_argument('-n', '--num-batches', default=500000, type=int,
     #                     help='number of total batches to run')

@@ -14,6 +14,7 @@ import lidar
 import PIL
 from torchvision import transforms
 import torch
+import math
 
 from pathlib import Path
 
@@ -181,7 +182,8 @@ class KittiSample:
 
         return rgbd
 
-    def get_crop_bbox(self, bbox_pts):
+
+    def get_crop_bbox(self, bbox_pts, res = 172):
         """Takes bbox points in 2d (x,y,1) and gets crop.
 
         Note that scaling factor of 2 is used to bring in context
@@ -194,57 +196,49 @@ class KittiSample:
         min_pts = bbox_pts.min(axis=0).astype(int)
         max_pts = bbox_pts.max(axis=0).astype(int)
 
-        x_pad = int((max_pts[0] - min_pts[0]) / 2)
-        y_pad = int((max_pts[1] - min_pts[1]) / 2)
+        x_mid = int((max_pts[0] + min_pts[0]) / 2)
+        y_mid = int((max_pts[1] + min_pts[1]) / 2)
 
-        return (int(min_pts[0] - x_pad), int(min_pts[1] - y_pad), int(max_pts[0] + x_pad), int(max_pts[1] + y_pad))
+        offset = res / 2
+
+        return (int(x_mid - offset), int(y_mid - offset), int(x_mid + offset), int(y_mid + offset))
+
+    #
+    # def get_crop_bbox(self, bbox_pts):
+    #     """Takes bbox points in 2d (x,y,1) and gets crop.
+    #
+    #     Note that scaling factor of 2 is used to bring in context
+    #
+    #     returnx bbox = (x_min, x_max, y_min, y_max)
+    #     """
+    #
+    #     # TODO: return square crop rather than rectangular.
+    #
+    #     min_pts = bbox_pts.min(axis=0).astype(int)
+    #     max_pts = bbox_pts.max(axis=0).astype(int)
+    #
+    #     x_pad = int((max_pts[0] - min_pts[0]) / 2)
+    #     y_pad = int((max_pts[1] - min_pts[1]) / 2)
+    #
+    #     return (int(min_pts[0] - x_pad), int(min_pts[1] - y_pad), int(max_pts[0] + x_pad), int(max_pts[1] + y_pad))
 
     def get_current_object(self):
 
         return self._get_object(self.frame)
 
-        img = self.kitti_data.get_cam2(self.frame)
-
-        pts_3d, pts_2d = self.project_bbox3d()
-
-        cropped_img = crop_image(np.array(img), pts_2d)
-
-        # convert to float
-        cropped_img = cropped_img.astype(np.float64) / 255
-
-        lidar_frame = self.lidar_frame_list[self.frame]
-        cropped_depth = crop_image(lidar_frame.depth_map, pts_2d)
-
-        # make (height, width, 4) shape for rgbd
-        shape = cropped_img.shape
-        rgbd_img = np.zeros((shape[0], shape[1], 4), dtype=np.float64)
-
-        rgbd_img[:,:,0:3] = cropped_img
-        rgbd_img[:,:,3] = cropped_depth
-
-        return rgbd_img
-
     def get_next_object(self):
 
         return self._get_object(self.next_frame)
-
-        img = self.kitti_data.get_cam2(self.next_frame)
-
-        pts_3d, pts_2d = self.project_bbox3d()
-
-        cropped_img = crop_image(np.array(img), pts_2d)
-
-        return cropped_img
 
     def get_delta(self):
         translation1, rotation1, _, _, _, _, _ = self.tracklet.get_for_frame(self.frame)
         translation2, rotation2, _, _, _, _, _ = self.tracklet.get_for_frame(self.next_frame)
 
-        # TODO: might be better to use cos and sin of angle
-        # to avoid sudden jump from 2pi to 0.
-        return (torch.from_numpy(translation2 - translation1).float(), torch.from_numpy(rotation2 - rotation1).float())
+        delta_rot = rotation2[2] - rotation1[2]
+        c = math.cos(delta_rot)
+        s = math.sin(delta_rot)
 
-
+        return (torch.from_numpy(translation2 - translation1).float(), torch.tensor([c, s]))
 
 class KittiDataset(Dataset):
 
@@ -381,3 +375,30 @@ def load_tracklets_for_frames(n_frames, xml_path):
                 tracklet.objectType]
 
     return (frame_tracklets, frame_tracklets_types)
+
+def main():
+
+    base =  r"C:\Users\catph\data\kitti_raw\sync\kitti_raw_data\data"
+    all_data = get_kitti_datasets(base, (0, 2))
+
+
+    bbox_list = []
+    for data in all_data:
+        for sample in data.samples:
+            pts_3d, pts_2d = sample.project_bbox3d()
+            bbox = sample.get_crop_bbox(pts_2d)
+
+            bbox_list.append(bbox)
+
+    bbox_array = np.array(bbox_list)
+
+    print(bbox_array)
+
+    delta_xs = (bbox_array[:, 2] - bbox_array[:, 0])
+    delta_ys = (bbox_array[:, 3] - bbox_array[:, 1])
+    print(f'mean delta x = {delta_xs.mean(axis=0)}, std = {delta_xs.std()}')
+    print(f'mean delta y = {delta_ys.mean(axis=0)}, std = {delta_ys.std()}')
+
+
+if __name__ == '__main__':
+    main()
